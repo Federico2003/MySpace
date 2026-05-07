@@ -25,7 +25,7 @@
   }
 
   function renderProfile(data) {
-    document.getElementById('user-name').innerText = `Hola,${data.nombre}`;
+    document.getElementById('user-name').innerText = `Hola, ${data.nombre}`;
     document.getElementById('dept-name').innerText = data.departamento;
     document.getElementById('dept-owner').innerText = `Titular:${data.nombre}`;
     document.getElementById('dept-image').src = data.imagen;
@@ -116,7 +116,6 @@
       ResidentPaymentsScreen.renderPayments(paymentData.payments || []);
       ResidentVisitsScreen.renderResidentVisits(visits);
       ResidentNoticesScreen.renderList(notices);
-      await ResidentConversationsScreen.refreshList();
 
       if (!movimientos.length) {
         renderMovements([
@@ -149,12 +148,44 @@
     }
   }
 
+  function isPaymentWindowOpen(user) {
+    const start = user.paymentDayStart;
+    const end = user.paymentDayEnd;
+    if (!start || !end) return true;
+    const today = new Date().getDate();
+    return today >= start && today <= end;
+  }
+
+  function applyPaymentWindowToButton(user) {
+    const btn = document.getElementById('btn-pagar-cuota');
+    if (!btn) return;
+    const start = user.paymentDayStart;
+    const end = user.paymentDayEnd;
+    const open = isPaymentWindowOpen(user);
+    if (!start || !end) {
+      btn.removeAttribute('disabled');
+      btn.title = '';
+      return;
+    }
+    if (open) {
+      btn.removeAttribute('disabled');
+      btn.title = `Ventana de pago: días ${start}–${end} del mes`;
+      btn.classList.remove('action-btn-disabled');
+    } else {
+      btn.setAttribute('disabled', 'true');
+      btn.classList.add('action-btn-disabled');
+      btn.title = `El pago está disponible los días ${start} al ${end} de cada mes`;
+    }
+  }
+
   window.ResidentHomeScreen = {
     buildResidentViewModel,
     renderProfile,
     renderFeatures,
     renderServices,
     renderMovements,
-    refreshDashboard
+    refreshDashboard,
+    isPaymentWindowOpen,
+    applyPaymentWindowToButton
   };
 })();

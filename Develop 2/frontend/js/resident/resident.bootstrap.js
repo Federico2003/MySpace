@@ -45,6 +45,12 @@
     ResidentStore.set('residentViewModel', residentViewModel);
     ResidentHomeScreen.renderProfile(residentViewModel);
 
+    ResidentHomeScreen.applyPaymentWindowToButton(cachedUser);
+    const paymentWindowHint = document.getElementById('payment-window-hint');
+    if (paymentWindowHint && cachedUser.paymentDayStart && cachedUser.paymentDayEnd) {
+      paymentWindowHint.textContent = `Días ${cachedUser.paymentDayStart}–${cachedUser.paymentDayEnd} del mes`;
+    }
+
     setLoadingState('activity-list', 'Cargando movimientos...');
     setLoadingState('notices-list', 'Cargando avisos...');
 
@@ -68,9 +74,6 @@
     const reservationFeedback = document.getElementById('reservation-feedback');
     const reservationSlotsFeedback = document.getElementById('reservation-slots-feedback');
     const visitFeedback = document.getElementById('visit-feedback');
-    const conversationForm = document.getElementById('conversationForm');
-    const conversationFeedback = document.getElementById('conversation-feedback');
-    const conversationReplyForm = document.getElementById('conversation-reply-form');
     const reservationAmenitySelect = document.getElementById('reservationAmenityId');
     const reservationDateInput = document.getElementById('reservationDate');
 
@@ -105,59 +108,76 @@
       });
     }
 
-    if (conversationForm) {
-      conversationForm.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const subject = document.getElementById('conversationSubject').value.trim();
-        const message = document.getElementById('conversationMessage').value.trim();
+    let cachedRentAmount = null;
+    let paymentOrigin = 'service';
+    let activePaymentId = null;
 
-        if (!subject || !message) {
-          conversationFeedback.textContent = 'Asunto y mensaje son requeridos';
-          conversationFeedback.className = 'modal-feedback error';
-          return;
-        }
+    function resetPaymentModal() {
+      ResidentPaymentsScreen.unmountStripeElement();
+      const s0 = document.getElementById('stripe-step-0');
+      const s1 = document.getElementById('stripe-step-1');
+      const s2 = document.getElementById('stripe-step-2');
+      if (s0) s0.style.display = 'block';
+      if (s1) s1.style.display = 'none';
+      if (s2) s2.style.display = 'none';
+      if (paymentForm) paymentForm.reset();
+      if (paymentFeedback) { paymentFeedback.textContent = ''; paymentFeedback.className = 'modal-feedback'; }
+      activePaymentId = null;
+    }
+    window.resetPaymentModal = resetPaymentModal;
 
+    async function goToStripeStep(concept, amount) {
+      const { clientSecret, paymentId } = await ResidentPaymentsScreen.createPaymentIntent({ concept, amount });
+      activePaymentId = paymentId || null;
+      ResidentPaymentsScreen.mountStripeElement(clientSecret);
+      document.getElementById('stripe-payment-summary').textContent = `${concept} — $${Number(amount).toLocaleString('es-MX')} MXN`;
+      document.getElementById('stripe-step-0').style.display = 'none';
+      document.getElementById('stripe-step-1').style.display = 'none';
+      document.getElementById('stripe-step-2').style.display = 'block';
+    }
+
+    ResidentPaymentsScreen.fetchRentAmount().then((amount) => {
+      cachedRentAmount = amount;
+      const rentLabel = document.getElementById('pay-rent-amount-label');
+      if (rentLabel) rentLabel.textContent = amount != null ? `$${Number(amount).toLocaleString('es-MX')} MXN` : 'No configurada';
+      const rentBtn = document.getElementById('pay-rent-btn');
+      if (rentBtn) rentBtn.disabled = amount == null;
+    });
+
+    const payRentBtn = document.getElementById('pay-rent-btn');
+    if (payRentBtn) {
+      payRentBtn.addEventListener('click', async () => {
+        if (cachedRentAmount == null) return;
+        paymentOrigin = 'rent';
+        const now = new Date();
+        const concept = `Renta ${now.toLocaleString('es-MX', { month: 'long', year: 'numeric' })}`;
         try {
-          setButtonLoadingState(conversationForm.querySelector('button[type="submit"]'), true, 'Enviando...');
-          await ResidentConversationsScreen.createConversation({ subject, message });
-          conversationForm.reset();
-          ResidentShared.closeAllModals();
-          await ResidentConversationsScreen.refreshList();
-          const chat = document.getElementById('chat-window');
-          if (chat) chat.style.display = 'flex';
-          ResidentShared.switchAssistantTab('messages');
-          showFeedback('Consulta enviada correctamente', 'success');
+          setButtonLoadingState(payRentBtn, true, 'Procesando...');
+          await goToStripeStep(concept, cachedRentAmount);
         } catch (error) {
-          conversationFeedback.textContent = error.message;
-          conversationFeedback.className = 'modal-feedback error';
           showFeedback(error.message, 'error');
         } finally {
-          setButtonLoadingState(conversationForm.querySelector('button[type="submit"]'), false);
+          setButtonLoadingState(payRentBtn, false);
         }
       });
     }
 
-    if (conversationReplyForm) {
-      conversationReplyForm.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const activeConversation = window.__residentConversationDetail;
-        const message = document.getElementById('conversationReplyInput').value.trim();
+    const payServiceBtn = document.getElementById('pay-service-btn');
+    if (payServiceBtn) {
+      payServiceBtn.addEventListener('click', () => {
+        paymentOrigin = 'service';
+        document.getElementById('stripe-step-0').style.display = 'none';
+        document.getElementById('stripe-step-1').style.display = 'block';
+      });
+    }
 
-        if (!activeConversation || !message) {
-          return;
-        }
-
-        try {
-          setButtonLoadingState(conversationReplyForm.querySelector('button[type="submit"]'), true, 'Enviando...');
-          const updatedConversation = await ResidentConversationsScreen.reply(activeConversation.id, { message });
-          ResidentConversationsScreen.renderDetail(updatedConversation);
-          await ResidentConversationsScreen.refreshList();
-          showFeedback('Respuesta enviada correctamente', 'success');
-        } catch (error) {
-          showFeedback(error.message, 'error');
-        } finally {
-          setButtonLoadingState(conversationReplyForm.querySelector('button[type="submit"]'), false);
-        }
+    const stripeStep1BackBtn = document.getElementById('stripe-step1-back-btn');
+    if (stripeStep1BackBtn) {
+      stripeStep1BackBtn.addEventListener('click', () => {
+        document.getElementById('stripe-step-1').style.display = 'none';
+        document.getElementById('stripe-step-0').style.display = 'block';
+        if (paymentForm) paymentForm.reset();
+        if (paymentFeedback) { paymentFeedback.textContent = ''; paymentFeedback.className = 'modal-feedback'; }
       });
     }
 
@@ -170,24 +190,56 @@
         if (!concept || !Number.isFinite(amount) || amount <= 0) {
           paymentFeedback.textContent = 'Concepto y monto válidos son requeridos';
           paymentFeedback.className = 'modal-feedback error';
-          showFeedback('Concepto y monto válidos son requeridos', 'error');
           return;
         }
 
         try {
           paymentFeedback.textContent = '';
-          setButtonLoadingState(paymentForm.querySelector('button[type="submit"]'), true, 'Registrando...');
-          await ResidentPaymentsScreen.createPayment({ concept, amount });
-          paymentForm.reset();
-          ResidentShared.closeAllModals();
-          await ResidentHomeScreen.refreshDashboard();
-          showFeedback('Pago registrado correctamente', 'success');
+          setButtonLoadingState(paymentForm.querySelector('button[type="submit"]'), true, 'Procesando...');
+          await goToStripeStep(concept, amount);
         } catch (error) {
           paymentFeedback.textContent = error.message;
           paymentFeedback.className = 'modal-feedback error';
           showFeedback(error.message, 'error');
         } finally {
           setButtonLoadingState(paymentForm.querySelector('button[type="submit"]'), false);
+        }
+      });
+    }
+
+    const stripeBackBtn = document.getElementById('stripe-back-btn');
+    if (stripeBackBtn) {
+      stripeBackBtn.addEventListener('click', () => {
+        ResidentPaymentsScreen.unmountStripeElement();
+        document.getElementById('stripe-step-2').style.display = 'none';
+        if (paymentOrigin === 'rent') {
+          document.getElementById('stripe-step-0').style.display = 'block';
+        } else {
+          document.getElementById('stripe-step-1').style.display = 'block';
+        }
+      });
+    }
+
+    const stripePayBtn = document.getElementById('stripe-pay-btn');
+    if (stripePayBtn) {
+      stripePayBtn.addEventListener('click', async () => {
+        const errDiv = document.getElementById('stripe-error-message');
+        try {
+          setButtonLoadingState(stripePayBtn, true, 'Procesando...');
+          if (errDiv) errDiv.style.display = 'none';
+          await ResidentPaymentsScreen.confirmPayment();
+          if (activePaymentId) {
+            try { await apiGet(`/api/payments/${encodeURIComponent(activePaymentId)}`); } catch (_) {}
+          }
+          resetPaymentModal();
+          ResidentShared.closeAllModals();
+          await ResidentHomeScreen.refreshDashboard();
+          showFeedback('Pago procesado correctamente', 'success');
+        } catch (error) {
+          if (errDiv) { errDiv.textContent = error.message; errDiv.style.display = 'block'; }
+          showFeedback(error.message, 'error');
+        } finally {
+          setButtonLoadingState(stripePayBtn, false);
         }
       });
     }
