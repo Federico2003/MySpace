@@ -13,13 +13,13 @@ function handleLogin(e) {
 
     setTimeout(() => {
         if (email.includes("admin")) {
-            window.location.href = "admin.html";
+            window.location.href = "Admin.html";
         } else {
-            window.location.href = "residente.html";
+            window.location.href = "Residente.html";
         }
     }, 1000);
 }
 
 function handleLoginGoogle() {
-    window.location.href = "residente.html";
+    window.location.href = "Residente.html";
 }
